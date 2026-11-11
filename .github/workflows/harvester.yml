@@ -1,0 +1,46 @@
+name: 24-7 Autonomous DOM & Skill Harvester
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Runs automatically every 6 hours
+  workflow_dispatch:      # Allows 1-click manual trigger in GitHub UI
+
+permissions:
+  contents: write         # Required so the bot can commit verified datasets back to repo
+
+jobs:
+  harvest-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: 2. Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 3. Install Dependencies & Headless Chromium Only
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: 4. Run Autonomous Playwright Harvester & Verifier
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CI_MODE: "true"
+        run: node scripts/ci_harvester.mjs
+
+      - name: 5. Commit Verified Rollouts & Reusable Skills
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --global user.name "ai-factory-bot"
+          git config --global user.email "bot@aifactory.local"
+          git add data/ verified_skills/ IMPLEMENTATION_STATE.md
+          git diff --staged --quiet || git commit -m "chore(data): append verified DOM rollouts and skills [skip ci]"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${GITHUB_REF_NAME}"
